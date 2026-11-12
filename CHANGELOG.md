@@ -2,7 +2,10 @@
 
 ## Unreleased
 
+## 1.1.1 - 2026-11-12
+
 ### Changed
+- Le logo fourni est maintenant l’icône de lancement Android et iOS.
 - Le workflow de release construit maintenant Android et iOS sur GitHub Actions et joint l’APK ainsi que l’app iOS non signée.
 
 ## 1.1.0 - 2026-11-12
