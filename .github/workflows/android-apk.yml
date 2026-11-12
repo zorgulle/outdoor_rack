@@ -1,4 +1,4 @@
-name: Android APK
+name: Mobile builds
 
 on:
   push:
@@ -14,8 +14,12 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: mobile-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build-apk:
+  build-android:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -42,14 +46,64 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk-${{ github.run_number }}
+          name: android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-      - name: Create or update GitHub release with APK
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+  build-ios:
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned iOS app
+        run: ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app ios-app-unsigned.zip
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app-unsigned
+          path: ios-app-unsigned.zip
+          if-no-files-found: error
+
+  publish-release:
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+    needs:
+      - build-android
+      - build-ios
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: release-assets/android
+
+      - name: Download unsigned iOS app
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-app-unsigned
+          path: release-assets/ios
+
+      - name: Create or update GitHub release with mobile builds
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            release-assets/android/app-release.apk
+            release-assets/ios/ios-app-unsigned.zip
+          overwrite_files: true
           fail_on_unmatched_files: true
