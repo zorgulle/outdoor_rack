@@ -22,14 +22,58 @@ class PacksScreen extends ConsumerWidget {
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final summary = list[index];
-                  return ListTile(
-                    leading: const Icon(Icons.backpack_outlined),
-                    title: Text(summary.pack.name),
-                    subtitle: Text(
-                      'Poids total : ${formatPackWeight(summary.totalWeightGrams)}',
+                  return Dismissible(
+                    key: ValueKey(summary.pack.id),
+                    direction: DismissDirection.endToStart,
+                    dismissThresholds: const {
+                      DismissDirection.endToStart: 0.2,
+                    },
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
                     ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _openPack(context, summary.pack),
+                    confirmDismiss: (_) => showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Supprimer ce sac ?'),
+                        content: Text(
+                          '« ${summary.pack.name} » sera supprimé. '
+                          'Les objets resteront dans l’inventaire.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            child: const Text('Annuler'),
+                          ),
+                          FilledButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, true),
+                            child: const Text('Supprimer'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    onDismissed: (_) {
+                      final database = ref.read(databaseProvider);
+                      (database.delete(database.packs)
+                            ..where((pack) => pack.id.equals(summary.pack.id)))
+                          .go();
+                    },
+                    child: ListTile(
+                      leading: const Icon(Icons.backpack_outlined),
+                      title: Text(summary.pack.name),
+                      subtitle: Text(
+                        'Poids total : ${formatPackWeight(summary.totalWeightGrams)}',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _openPack(context, summary.pack),
+                    ),
                   );
                 },
               ),

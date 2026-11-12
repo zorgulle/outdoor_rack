@@ -77,73 +77,81 @@ class _AjoutObjetSheetState extends ConsumerState<AjoutObjetSheet> {
       padding: EdgeInsets.fromLTRB(
         16, 16, 16, MediaQuery.of(context).viewInsets.bottom + 16,
       ),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                widget.item == null ? 'Ajouter un objet' : 'Modifier l’objet',
-                style: Theme.of(context).textTheme.titleMedium,
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  widget.item == null ? 'Ajouter un objet' : 'Modifier l’objet',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _marqueCtrl,
-              autofocus: widget.item == null,
-              textCapitalization: TextCapitalization.words,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Marque (optionnel)'),
-            ),
-            TextFormField(
-              controller: _modeleCtrl,
-              textCapitalization: TextCapitalization.words,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Modèle'),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Obligatoire' : null,
-            ),
-            TextFormField(
-              controller: _poidsCtrl,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              onFieldSubmitted: (_) => _valider(),
-              decoration: const InputDecoration(labelText: 'Poids (g)'),
-              validator: (v) =>
-                  (int.tryParse(v?.trim() ?? '') == null)
-                      ? 'Nombre entier requis'
-                      : null,
-            ),
-            const SizedBox(height: 12),
-            categories.when(
-              data: (list) => DropdownButtonFormField<int?>(
-                initialValue: _categoryId,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Catégorie'),
-                items: [
-                  const DropdownMenuItem<int?>(
-                    value: null,
-                    child: Text('Sans catégorie'),
-                  ),
-                  for (final entry in flattenCategoryTree(list))
-                    DropdownMenuItem<int?>(
-                      value: entry.category.id,
-                      child: Text(entry.path, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _marqueCtrl,
+                autofocus: widget.item == null,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+                decoration:
+                    const InputDecoration(labelText: 'Marque (optionnel)'),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _modeleCtrl,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(labelText: 'Modèle'),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Obligatoire' : null,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _poidsCtrl,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _valider(),
+                decoration: const InputDecoration(labelText: 'Poids (g)'),
+                validator: (v) =>
+                    (int.tryParse(v?.trim() ?? '') == null)
+                        ? 'Nombre entier requis'
+                        : null,
+              ),
+              const SizedBox(height: 14),
+              categories.when(
+                data: (list) => DropdownButtonFormField<int?>(
+                  initialValue: _categoryId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Catégorie'),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('Sans catégorie'),
                     ),
-                ],
-                onChanged: (value) => setState(() => _categoryId = value),
+                    for (final entry in flattenCategoryTree(list))
+                      DropdownMenuItem<int?>(
+                        value: entry.category.id,
+                        child: Text(
+                          entry.path,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() => _categoryId = value),
+                ),
+                loading: () => const LinearProgressIndicator(),
+                error: (error, _) => Text('Erreur : $error'),
               ),
-              loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Text('Erreur : $error'),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _valider,
-              child: Text(widget.item == null ? 'Enregistrer' : 'Modifier'),
-            ),
-          ],
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _valider,
+                child: Text(widget.item == null ? 'Enregistrer' : 'Modifier'),
+              ),
+            ],
+          ),
         ),
       ),
     );

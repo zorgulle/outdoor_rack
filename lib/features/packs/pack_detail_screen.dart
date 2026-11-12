@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/providers.dart';
+import '../categories/category_tree.dart';
 import 'packs_screen.dart' show formatPackWeight;
 
-class PackDetailScreen extends ConsumerWidget {
+class PackDetailScreen extends ConsumerStatefulWidget {
   const PackDetailScreen({
     super.key,
     required this.packId,
@@ -17,11 +21,66 @@ class PackDetailScreen extends ConsumerWidget {
   final String packName;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final contents = ref.watch(packContentsProvider(packId));
+  ConsumerState<PackDetailScreen> createState() => _PackDetailScreenState();
+}
+
+class _PackDetailScreenState extends ConsumerState<PackDetailScreen> {
+  StreamSubscription<UserAccelerometerEvent>? _accelerometerSubscription;
+  DateTime _lastShake = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _checklistMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _accelerometerSubscription = userAccelerometerEventStream(
+      samplingPeriod: const Duration(milliseconds: 50),
+    ).listen(_handleAcceleration, onError: (Object _) {});
+  }
+
+  void _handleAcceleration(UserAccelerometerEvent event) {
+    final magnitudeSquared =
+        event.x * event.x + event.y * event.y + event.z * event.z;
+    if (magnitudeSquared < 144) return;
+
+    final now = DateTime.now();
+    if (now.difference(_lastShake) < const Duration(seconds: 1)) return;
+    _lastShake = now;
+    if (!mounted || _checklistMode) return;
+    setState(() => _checklistMode = true);
+  }
+
+  void _toggleChecklistMode() {
+    setState(() => _checklistMode = !_checklistMode);
+  }
+
+  @override
+  void dispose() {
+    unawaited(_accelerometerSubscription?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final contents = ref.watch(packContentsProvider(widget.packId));
+    final categories = ref.watch(categoriesProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(packName)),
+      appBar: AppBar(
+        title: Text(
+          _checklistMode ? '${widget.packName} · Checklist' : widget.packName,
+        ),
+        actions: [
+          IconButton(
+            tooltip: _checklistMode
+                ? 'Quitter la checklist'
+                : 'Activer la checklist',
+            onPressed: _toggleChecklistMode,
+            icon: Icon(
+              _checklistMode ? Icons.checklist_rtl : Icons.checklist,
+            ),
+          ),
+        ],
+      ),
       body: contents.when(
         data: (entries) {
           final totalWeight = entries.fold<int>(
@@ -32,37 +91,87 @@ class PackDetailScreen extends ConsumerWidget {
           if (entries.isEmpty) {
             return const Center(child: Text('Aucun objet dans ce sac'));
           }
-          return Column(
-            children: [
-              ListTile(
-                title: const Text('Poids total'),
-                trailing: Text(
-                  formatPackWeight(totalWeight),
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: entries.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) => _PackItemTile(
-                    entry: entries[index],
-                    onDecrement: () => _changeQuantity(
-                      ref,
-                      entries[index],
-                      entries[index].packItem.quantityCarried - 1,
+          return categories.when(
+            data: (categoryList) {
+              final tree = flattenCategoryTree(categoryList);
+              final pathById = {
+                for (final entry in tree) entry.category.id: entry.path,
+              };
+              final entriesByCategory = <int?, List<PackItemEntry>>{};
+              for (final entry in entries) {
+                entriesByCategory
+                    .putIfAbsent(entry.item.categoryId, () => [])
+                    .add(entry);
+              }
+              final orderedCategoryIds = <int?>[
+                for (final entry in tree)
+                  if (entriesByCategory.containsKey(entry.category.id))
+                    entry.category.id,
+                if (entriesByCategory.containsKey(null)) null,
+                for (final categoryId in entriesByCategory.keys)
+                  if (!tree.any((entry) => entry.category.id == categoryId) &&
+                      categoryId != null)
+                    categoryId,
+              ];
+
+              return Column(
+                children: [
+                  ListTile(
+                    title: const Text('Poids total'),
+                    trailing: Text(
+                      formatPackWeight(totalWeight),
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    onIncrement: () => _changeQuantity(
-                      ref,
-                      entries[index],
-                      entries[index].packItem.quantityCarried + 1,
-                    ),
-                    onRemove: () => _removePackItem(ref, entries[index]),
                   ),
-                ),
-              ),
-            ],
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView(
+                      children: [
+                        for (final categoryId in orderedCategoryIds) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                            child: Text(
+                              categoryId == null
+                                  ? 'Sans catégorie'
+                                  : pathById[categoryId] ?? 'Catégorie inconnue',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
+                                  ),
+                            ),
+                          ),
+                          for (final entry in entriesByCategory[categoryId]!)
+                            _PackItemTile(
+                              entry: entry,
+                              checklistMode: _checklistMode,
+                              onChecked: (checked) =>
+                                  _setPackItemChecked(ref, entry, checked),
+                              onDecrement: () => _changeQuantity(
+                                ref,
+                                entry,
+                                entry.packItem.quantityCarried - 1,
+                              ),
+                              onIncrement: () => _changeQuantity(
+                                ref,
+                                entry,
+                                entry.packItem.quantityCarried + 1,
+                              ),
+                              onRemove: () => _removePackItem(ref, entry),
+                            ),
+                          const Divider(height: 1),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, _) => Center(child: Text('Erreur : $error')),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -72,7 +181,7 @@ class PackDetailScreen extends ConsumerWidget {
         onPressed: () => showModalBottomSheet<void>(
           context: context,
           isScrollControlled: true,
-          builder: (_) => _AddPackItemsSheet(packId: packId),
+          builder: (_) => _AddPackItemsSheet(packId: widget.packId),
         ),
         icon: const Icon(Icons.add),
         label: const Text('Ajouter des objets'),
@@ -84,12 +193,16 @@ class PackDetailScreen extends ConsumerWidget {
 class _PackItemTile extends StatelessWidget {
   const _PackItemTile({
     required this.entry,
+    required this.checklistMode,
+    required this.onChecked,
     required this.onDecrement,
     required this.onIncrement,
     required this.onRemove,
   });
 
   final PackItemEntry entry;
+  final bool checklistMode;
+  final ValueChanged<bool> onChecked;
   final VoidCallback onDecrement;
   final VoidCallback onIncrement;
   final VoidCallback onRemove;
@@ -105,6 +218,21 @@ class _PackItemTile extends StatelessWidget {
         : formatPackWeight(
             entry.item.weightGrams! * entry.packItem.quantityCarried,
           );
+
+    if (checklistMode) {
+      return CheckboxListTile(
+        value: entry.packItem.isChecked,
+        controlAffinity: ListTileControlAffinity.leading,
+        title: Text(
+          itemName,
+          style: entry.packItem.isChecked
+              ? const TextStyle(decoration: TextDecoration.lineThrough)
+              : null,
+        ),
+        subtitle: Text('$weight · Quantité : ${entry.packItem.quantityCarried}'),
+        onChanged: (checked) => onChecked(checked ?? false),
+      );
+    }
 
     return ListTile(
       title: Text(itemName),
@@ -258,6 +386,17 @@ Future<void> _changeQuantity(
   await (database.update(database.packItems)
         ..where((row) => row.id.equals(entry.packItem.id)))
       .write(PackItemsCompanion(quantityCarried: Value(quantity)));
+}
+
+Future<void> _setPackItemChecked(
+  WidgetRef ref,
+  PackItemEntry entry,
+  bool isChecked,
+) async {
+  final database = ref.read(databaseProvider);
+  await (database.update(database.packItems)
+        ..where((row) => row.id.equals(entry.packItem.id)))
+      .write(PackItemsCompanion(isChecked: Value(isChecked)));
 }
 
 Future<void> _removePackItem(WidgetRef ref, PackItemEntry entry) async {

@@ -64,8 +64,15 @@ void main() {
   testWidgets('a pack shows the weight of its items', (tester) async {
     final database = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(database.close);
+    final categoryId = await database.into(database.categories).insert(
+          CategoriesCompanion.insert(name: 'Couchage test'),
+        );
     await database.into(database.items).insert(
-          ItemsCompanion.insert(name: 'Tente', weightGrams: const Value(1250)),
+          ItemsCompanion.insert(
+            name: 'Tente',
+            categoryId: Value(categoryId),
+            weightGrams: const Value(1250),
+          ),
         );
 
     await tester.pumpWidget(
@@ -87,6 +94,19 @@ void main() {
     await tester.tap(find.byType(CheckboxListTile).first);
     await tester.tap(find.text('Ajouter (1)'));
     await tester.pumpAndSettle();
+    expect(find.text('Couchage test'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Activer la checklist'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CheckboxListTile), findsOneWidget);
+    await tester.tap(find.byType(CheckboxListTile).first);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      (await database.select(database.packItems).getSingle()).isChecked,
+      isTrue,
+    );
+    await tester.tap(find.byTooltip('Quitter la checklist'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('Augmenter la quantité'));
     await tester.pump(const Duration(milliseconds: 100));
@@ -96,5 +116,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Week-end'), findsOneWidget);
     expect(find.text('Poids total : 2 kg 500 g'), findsOneWidget);
+
+    await tester.drag(find.text('Week-end'), const Offset(-250, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Supprimer ce sac ?'), findsOneWidget);
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+    expect(find.text('Week-end'), findsOneWidget);
+
+    await tester.drag(find.text('Week-end'), const Offset(-250, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Week-end'), findsNothing);
+    expect(await database.select(database.packItems).get(), isEmpty);
+    expect(await database.select(database.items).get(), hasLength(1));
   });
 }
